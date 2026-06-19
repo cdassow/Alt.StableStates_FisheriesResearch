@@ -11,21 +11,23 @@ library(ggpubr)
 # m - adult natural mortality rate, species specific
 # cJA - effect of adults of a given species on juveniles of a given species (cover cannibalism or interspecific predation, both happen in foraging arena)
 # cJJ - effect of juveniles of one species on juveniles of the other (can be predation or competition)
-# h - rate at which juveniles leave foraging arena for refuge, species specific
+# v. - rate at which juveniles leave foraging arena for refuge, species specific (equivalent to v' in foraging arena theory but easier to write in code because ' has a specific use). In the manuscript I will use the traditional v' notation.
 # v - rate at which juveniles enter foraging arena from refuge, species specific
-# stock1 - annual stocked num spp1
-# stock2 - annual stocked num spp2
-simBiggsQ2<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+# kP - annual stocked num preferred species
+# kC - annual stocked num competitor species
+# wP - annual stochasticity added to natural recruitment for preferred species
+# wC - annual stochasticity added to natural recruitment for competitor species
+simBiggsQ2w<-function(t,y,params){
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*A1/(50+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*AP/(50+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
@@ -40,12 +42,12 @@ tpS=function(x,y0,parmName){
   for(i in 1:length(unique(x[,2]))){
     init=y0[1]>y0[2] # initial state
     temp=x[x[,2]==unique(x[,2])[i],] # pulling rows of x with the parm value [i]
-    comp=(temp$A2/temp$A1)<0.6 # is A2 abund <60% of A1?
+    comp=(temp$AC/temp$AP)<0.6 # is AC abund <60% of AP?
     harv=c(min(temp$qEs[comp!=init]),max(temp$qEs[comp!=init])) # pulling max and min harv rates that cause a flip
     tips$parVal[i]=unique(x[,2])[i]
     tips$minQTP[i]=harv[1]
     tips$maxQTP[i]=harv[2]
-    tips$dom[i]=ifelse(init==T,"A1","A2")
+    tips$dom[i]=ifelse(init==T,"AP","AC")
   }
   if(length(unique(tips$minQTP[is.finite(tips$minQTP)]))>1){ # fit model to relationship between tipping point and parm values
     fit=lm(tips$minQTP[is.finite(tips$minQTP)]~tips$parVal[is.finite(tips$minQTP)])
@@ -60,43 +62,55 @@ tstep=times=1:100
 ss=seq(.5,1.5,length.out = 5)
 qEs=seq(0,0.3,length.out=30)
 combos=expand.grid(qEs,ss);colnames(combos)=c("qEs","ss")
-store=data.frame(A1=0,A2=0,J1=0,J2=0);store=cbind(combos,store)
-store2=data.frame(A1=0,A2=0,J1=0,J2=0);store2=cbind(combos,store2)
+store=data.frame(AP=0,AC=0,JP=0,JC=0);store=cbind(combos,store)
+store2=data.frame(AP=0,AC=0,JP=0,JC=0);store2=cbind(combos,store2)
 
 y01=c(500,5000,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1*store$ss[i],m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y01,times=times,func=simBiggsQ2,parms=p)
-  store$A1[i]=sim[nrow(sim)-1,2]
-  store$A2[i]=sim[nrow(sim)-1,3]
-  store$J1[i]=sim[nrow(sim)-1,4]
-  store$J2[i]=sim[nrow(sim)-1,5]
+  p=c(c(sP=0.1*store$ss[i],mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y01,times=times,func=simBiggsQ2w,parms=p)
+  store$AP[i]=sim[nrow(sim)-1,2]
+  store$AC[i]=sim[nrow(sim)-1,3]
+  store$JP[i]=sim[nrow(sim)-1,4]
+  store$JC[i]=sim[nrow(sim)-1,5]
   #store$ss[i]=ss[f]
 }
 y02=c(5000,500,0,0)
 for(i in 1:nrow(store2)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1*store2$ss[i],m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y02,times=times,func=simBiggsQ2,parms=p)
-  store2$A1[i]=sim[nrow(sim)-1,2]
-  store2$A2[i]=sim[nrow(sim)-1,3]
-  store2$J1[i]=sim[nrow(sim)-1,4]
-  store2$J2[i]=sim[nrow(sim)-1,5]
+  p=c(c(sP=0.1*store2$ss[i],mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y02,times=times,func=simBiggsQ2w,parms=p)
+  store2$AP[i]=sim[nrow(sim)-1,2]
+  store2$AC[i]=sim[nrow(sim)-1,3]
+  store2$JP[i]=sim[nrow(sim)-1,4]
+  store2$JC[i]=sim[nrow(sim)-1,5]
   #store2$ss[i]=ss[f]
 }
 
@@ -113,42 +127,56 @@ times=1:100
 ms=seq(.5,1.5,length.out = 5)
 qEs=seq(0,0.3,length.out=30)
 combos=expand.grid(qEs,ms);colnames(combos)=c("qEs","ms")
-store=data.frame(A1=0,A2=0,J1=0,J2=0);store=cbind(combos,store)
-store2=data.frame(A1=0,A2=0,J1=0,J2=0);store2=cbind(combos,store2)
+store=data.frame(AP=0,AC=0,JP=0,JC=0);store=cbind(combos,store)
+store2=data.frame(AP=0,AC=0,JP=0,JC=0);store2=cbind(combos,store2)
 
 y01=c(500,5000,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1*store$ms[i],cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y01,times=times,func=simBiggsQ2,parms=p)
-  store$A1[i]=sim[nrow(sim)-1,2]
-  store$A2[i]=sim[nrow(sim)-1,3]
-  store$J1[i]=sim[nrow(sim)-1,4]
-  store$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1*store$ms[i],cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y01,times=times,func=simBiggsQ2w,parms=p)
+  store$AP[i]=sim[nrow(sim)-1,2]
+  store$AC[i]=sim[nrow(sim)-1,3]
+  store$JP[i]=sim[nrow(sim)-1,4]
+  store$JC[i]=sim[nrow(sim)-1,5]
 }
 y02=c(5000,500,0,0)
 for(i in 1:nrow(store2)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1*store2$ms[i],cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y02,times=times,func=simBiggsQ2,parms=p)
-  store2$A1[i]=sim[nrow(sim)-1,2]
-  store2$A2[i]=sim[nrow(sim)-1,3]
-  store2$J1[i]=sim[nrow(sim)-1,4]
-  store2$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1*store2$ms[i],cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y02,times=times,func=simBiggsQ2w,parms=p)
+  store2$AP[i]=sim[nrow(sim)-1,2]
+  store2$AC[i]=sim[nrow(sim)-1,3]
+  store2$JP[i]=sim[nrow(sim)-1,4]
+  store2$JC[i]=sim[nrow(sim)-1,5]
 }
 
 t3=tpS(x=store,y0=y01,parmName="ms")
@@ -156,53 +184,67 @@ t4=tpS(x=store2,y0=y02,parmName="ms")
 
 
 
-#### ADULT PREDATION ON J2 ####
-#looking to see how variation in the adult predation j2 for species 1 changes whether or not stable states occur
+#### ADULT PREDATION ON JC ####
+#looking to see how variation in the adult predation jC for preferred species changes whether or not stable states occur
 times=1:100
 
-cj2a1s=seq(.5,1.5,length.out = 5)
+cjCaPs=seq(.5,1.5,length.out = 5)
 qEs=seq(0,0.3,length.out=30)
-combos=expand.grid(qEs,cj2a1s);colnames(combos)=c("qEs","cj2a1s")
-store=data.frame(A1=0,A2=0,J1=0,J2=0);store=cbind(combos,store)
-store2=data.frame(A1=0,A2=0,J1=0,J2=0);store2=cbind(combos,store2)
+combos=expand.grid(qEs,cjCaPs);colnames(combos)=c("qEs","cjCaPs")
+store=data.frame(AP=0,AC=0,JP=0,JC=0);store=cbind(combos,store)
+store2=data.frame(AP=0,AC=0,JP=0,JC=0);store2=cbind(combos,store2)
 
 y01=c(500,5000,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03*store$cj2a1s[i],cJ2J1=0.003,v2=1))
-  sim=ode(y=y01,times=times,func=simBiggsQ2,parms=p)
-  store$A1[i]=sim[nrow(sim)-1,2]
-  store$A2[i]=sim[nrow(sim)-1,3]
-  store$J1[i]=sim[nrow(sim)-1,4]
-  store$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03*store$cjCaPs[i],cJCJP=0.003,vC=1))
+  sim=ode(y=y01,times=times,func=simBiggsQ2w,parms=p)
+  store$AP[i]=sim[nrow(sim)-1,2]
+  store$AC[i]=sim[nrow(sim)-1,3]
+  store$JP[i]=sim[nrow(sim)-1,4]
+  store$JC[i]=sim[nrow(sim)-1,5]
 }
 y02=c(5000,500,0,0)
 for(i in 1:nrow(store2)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03*store2$cj2a1s[i],cJ2J1=0.003,v2=1))
-  sim=ode(y=y02,times=times,func=simBiggsQ2,parms=p)
-  store2$A1[i]=sim[nrow(sim)-1,2]
-  store2$A2[i]=sim[nrow(sim)-1,3]
-  store2$J1[i]=sim[nrow(sim)-1,4]
-  store2$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03*store2$cjCaPs[i],cJCJP=0.003,vC=1))
+  sim=ode(y=y02,times=times,func=simBiggsQ2w,parms=p)
+  store2$AP[i]=sim[nrow(sim)-1,2]
+  store2$AC[i]=sim[nrow(sim)-1,3]
+  store2$JP[i]=sim[nrow(sim)-1,4]
+  store2$JC[i]=sim[nrow(sim)-1,5]
 }
 
-t5=tpS(x=store,y0=y01,parmName="cj2a1s")
-t6=tpS(x=store2,y0=y02,parmName="cj2a1s")
+t5=tpS(x=store,y0=y01,parmName="cjCaPs")
+t6=tpS(x=store2,y0=y02,parmName="cjCaPs")
 
 
 
@@ -213,196 +255,252 @@ times=1:100
 can=seq(.5,1.5,length.out = 5)
 qEs=seq(0,0.3,length.out=30)
 combos=expand.grid(qEs,can);colnames(combos)=c("qEs","can")
-store=data.frame(A1=0,A2=0,J1=0,J2=0);store=cbind(combos,store)
-store2=data.frame(A1=0,A2=0,J1=0,J2=0);store2=cbind(combos,store2)
+store=data.frame(AP=0,AC=0,JP=0,JC=0);store=cbind(combos,store)
+store2=data.frame(AP=0,AC=0,JP=0,JC=0);store2=cbind(combos,store2)
 
 
 y01=c(500,5000,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001*store$can[i],cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y01,times=times,func=simBiggsQ2,parms=p)
-  store$A1[i]=sim[nrow(sim)-1,2]
-  store$A2[i]=sim[nrow(sim)-1,3]
-  store$J1[i]=sim[nrow(sim)-1,4]
-  store$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001*store$can[i],cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y01,times=times,func=simBiggsQ2w,parms=p)
+  store$AP[i]=sim[nrow(sim)-1,2]
+  store$AC[i]=sim[nrow(sim)-1,3]
+  store$JP[i]=sim[nrow(sim)-1,4]
+  store$JC[i]=sim[nrow(sim)-1,5]
 }
 y02=c(5000,500,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001*store2$can[i],cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y02,times=times,func=simBiggsQ2,parms=p)
-  store2$A1[i]=sim[nrow(sim)-1,2]
-  store2$A2[i]=sim[nrow(sim)-1,3]
-  store2$J1[i]=sim[nrow(sim)-1,4]
-  store2$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001*store2$can[i],cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y02,times=times,func=simBiggsQ2w,parms=p)
+  store2$AP[i]=sim[nrow(sim)-1,2]
+  store2$AC[i]=sim[nrow(sim)-1,3]
+  store2$JP[i]=sim[nrow(sim)-1,4]
+  store2$JC[i]=sim[nrow(sim)-1,5]
   
 }
 
 t7=tpS(x=store,y0=y01,parmName="can")
 t8=tpS(x=store2,y0=y02,parmName="can")
 
-#### EFFECT OF J1 ON J2 ####
-#looking to see how variation in the j1 effect on j2 changes whether or not stable states occur
+#### EFFECT OF JP ON JC ####
+#looking to see how variation in the jP effect on jC changes whether or not stable states occur
 times=1:100
 
-cj2j1s=seq(.5,1.5,length.out = 5)
+cjCjPs=seq(.5,1.5,length.out = 5)
 qEs=seq(0,0.3,length.out=30)
-combos=expand.grid(qEs,cj2a1s);colnames(combos)=c("qEs","cj2j1s")
-store=data.frame(A1=0,A2=0,J1=0,J2=0);store=cbind(combos,store)
-store2=data.frame(A1=0,A2=0,J1=0,J2=0);store2=cbind(combos,store2)
+combos=expand.grid(qEs,cjCjPs);colnames(combos)=c("qEs","cjCjPs")
+store=data.frame(AP=0,AC=0,JP=0,JC=0);store=cbind(combos,store)
+store2=data.frame(AP=0,AC=0,JP=0,JC=0);store2=cbind(combos,store2)
 
 y01=c(500,5000,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003*store$cj2j1s[i],v2=1))
-  sim=ode(y=y01,times=times,func=simBiggsQ2,parms=p)
-  store$A1[i]=sim[nrow(sim)-1,2]
-  store$A2[i]=sim[nrow(sim)-1,3]
-  store$J1[i]=sim[nrow(sim)-1,4]
-  store$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003*store$cjCjPs[i],vC=1))
+  sim=ode(y=y01,times=times,func=simBiggsQ2w,parms=p)
+  store$AP[i]=sim[nrow(sim)-1,2]
+  store$AC[i]=sim[nrow(sim)-1,3]
+  store$JP[i]=sim[nrow(sim)-1,4]
+  store$JC[i]=sim[nrow(sim)-1,5]
 }
 y02=c(5000,500,0,0)
 for(i in 1:nrow(store2)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003*store2$cj2j1s[i],v2=1))
-  sim=ode(y=y02,times=times,func=simBiggsQ2,parms=p)
-  store2$A1[i]=sim[nrow(sim)-1,2]
-  store2$A2[i]=sim[nrow(sim)-1,3]
-  store2$J1[i]=sim[nrow(sim)-1,4]
-  store2$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003*store2$cjCjPs[i],vC=1))
+  sim=ode(y=y02,times=times,func=simBiggsQ2w,parms=p)
+  store2$AP[i]=sim[nrow(sim)-1,2]
+  store2$AC[i]=sim[nrow(sim)-1,3]
+  store2$JP[i]=sim[nrow(sim)-1,4]
+  store2$JC[i]=sim[nrow(sim)-1,5]
 }
 
 
-t9=tpS(x=store,y0=y01,parmName="cj2j1s")
-t10=tpS(x=store2,y0=y02,parmName="cj2j1s")
+t9=tpS(x=store,y0=y01,parmName="cjCjPs")
+t10=tpS(x=store2,y0=y02,parmName="cjCjPs")
 
-#### EFFECT OF J2 ON J1 ####
-#looking to see how variation in the j2 effect on j1 changes whether or not stable states occur
+#### EFFECT OF JC ON JP ####
+#looking to see how variation in the jC effect on jP changes whether or not stable states occur
 times=1:100
 
-cj1j2s=seq(.5,1.5,length.out = 5)
+cjPjCs=seq(.5,1.5,length.out = 5)
 qEs=seq(0,0.3,length.out=30)
-combos=expand.grid(qEs,cj2a1s);colnames(combos)=c("qEs","cj1j2s")
-store=data.frame(A1=0,A2=0,J1=0,J2=0);store=cbind(combos,store)
-store2=data.frame(A1=0,A2=0,J1=0,J2=0);store2=cbind(combos,store2)
+combos=expand.grid(qEs,cjPjCs);colnames(combos)=c("qEs","cjPjCs")
+store=data.frame(AP=0,AC=0,JP=0,JC=0);store=cbind(combos,store)
+store2=data.frame(AP=0,AC=0,JP=0,JC=0);store2=cbind(combos,store2)
 
 y01=c(500,5000,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003*store$cj1j2s[i],v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y01,times=times,func=simBiggsQ2,parms=p)
-  store$A1[i]=sim[nrow(sim)-1,2]
-  store$A2[i]=sim[nrow(sim)-1,3]
-  store$J1[i]=sim[nrow(sim)-1,4]
-  store$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003*store$cjPjCs[i],vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y01,times=times,func=simBiggsQ2w,parms=p)
+  store$AP[i]=sim[nrow(sim)-1,2]
+  store$AC[i]=sim[nrow(sim)-1,3]
+  store$JP[i]=sim[nrow(sim)-1,4]
+  store$JC[i]=sim[nrow(sim)-1,5]
 }
 y02=c(5000,500,0,0)
 for(i in 1:nrow(store2)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003*store$cj1j2s[i],v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y02,times=times,func=simBiggsQ2,parms=p)
-  store2$A1[i]=sim[nrow(sim)-1,2]
-  store2$A2[i]=sim[nrow(sim)-1,3]
-  store2$J1[i]=sim[nrow(sim)-1,4]
-  store2$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003*store$cjPjCs[i],vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y02,times=times,func=simBiggsQ2w,parms=p)
+  store2$AP[i]=sim[nrow(sim)-1,2]
+  store2$AC[i]=sim[nrow(sim)-1,3]
+  store2$JP[i]=sim[nrow(sim)-1,4]
+  store2$JC[i]=sim[nrow(sim)-1,5]
 }
 
 
-t11=tpS(x=store,y0=y01,parmName="cj1j2s")
-t12=tpS(x=store2,y0=y02,parmName="cj1j2s")
+t11=tpS(x=store,y0=y01,parmName="cjPjCs")
+t12=tpS(x=store2,y0=y02,parmName="cjPjCs")
 
 
-#### ADULT PREDATION ON J1 ####
-#looking to see how variation in the adult predation j1 for species 2 changes whether or not stable states occur
+#### ADULT PREDATION ON JP ####
+#looking to see how variation in the adult predation jP for species 2 changes whether or not stable states occur
 times=1:100
 
-cj1a2s=seq(.5,1.5,length.out = 5)
+cjPaCs=seq(.5,1.5,length.out = 5)
 qEs=seq(0,0.3,length.out=30)
-combos=expand.grid(qEs,cj2a1s);colnames(combos)=c("qEs","cj1a2s")
-store=data.frame(A1=0,A2=0,J1=0,J2=0);store=cbind(combos,store)
-store2=data.frame(A1=0,A2=0,J1=0,J2=0);store2=cbind(combos,store2)
+combos=expand.grid(qEs,cjPaCs);colnames(combos)=c("qEs","cjPaCs")
+store=data.frame(AP=0,AC=0,JP=0,JC=0);store=cbind(combos,store)
+store2=data.frame(AP=0,AC=0,JP=0,JC=0);store2=cbind(combos,store2)
 
 y01=c(500,5000,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05*store$cj1a2s[i],cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y01,times=times,func=simBiggsQ2,parms=p)
-  store$A1[i]=sim[nrow(sim)-1,2]
-  store$A2[i]=sim[nrow(sim)-1,3]
-  store$J1[i]=sim[nrow(sim)-1,4]
-  store$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05*store$cjPaCs[i],cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y01,times=times,func=simBiggsQ2w,parms=p)
+  store$AP[i]=sim[nrow(sim)-1,2]
+  store$AC[i]=sim[nrow(sim)-1,3]
+  store$JP[i]=sim[nrow(sim)-1,4]
+  store$JC[i]=sim[nrow(sim)-1,5]
 }
 y02=c(5000,500,0,0)
 for(i in 1:nrow(store2)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05*store2$cj1a2s[i],cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
-  sim=ode(y=y02,times=times,func=simBiggsQ2,parms=p)
-  store2$A1[i]=sim[nrow(sim)-1,2]
-  store2$A2[i]=sim[nrow(sim)-1,3]
-  store2$J1[i]=sim[nrow(sim)-1,4]
-  store2$J2[i]=sim[nrow(sim)-1,5]
+  
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05*store2$cjPaCs[i],cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
+  sim=ode(y=y02,times=times,func=simBiggsQ2w,parms=p)
+  store2$AP[i]=sim[nrow(sim)-1,2]
+  store2$AC[i]=sim[nrow(sim)-1,3]
+  store2$JP[i]=sim[nrow(sim)-1,4]
+  store2$JC[i]=sim[nrow(sim)-1,5]
 }
 
 
-t13=tpS(x=store,y0=y01,parmName="cj1a2s")
-t14=tpS(x=store2,y0=y02,parmName="cj1a2s")
+t13=tpS(x=store,y0=y01,parmName="cjPaCs")
+t14=tpS(x=store2,y0=y02,parmName="cjPaCs")
 
 
 #### B-H SENSITIVITY ####
@@ -412,116 +510,122 @@ t14=tpS(x=store2,y0=y02,parmName="cj1a2s")
 #species 2 stock recruitment will stay the same through all variants of speces 1 recruitment
 levs=seq(.5,1.5,length.out = 5)
 #original a=100; b=50
-simBiggsQ2<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+simBiggsQ2w<-function(t,y,params){
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*A1/(50+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*AP/(50+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 #var1 a=1; b=50
 var1<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*levs[1]*A1/(50+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*levs[1]*AP/(50+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 # var2 a=50.75; b=50
 var2<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*levs[2]*A1/(50+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*levs[2]*AP/(50+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 # var 3 a=100.5; b=50
 var3<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*levs[3]*A1/(50+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*levs[3]*AP/(50+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 # var 4 a=150.25; b=50
 var4<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*levs[4]*A1/(50+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*levs[4]*AP/(50+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 # var 5 a=200; b=50
 var5<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*levs[5]*A1/(50+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*levs[5]*AP/(50+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 times=1:100
-funlist=list(simBiggsQ2,var1,var2,var3,var4,var5)
+funlist=list(simBiggsQ2w,var1,var2,var3,var4,var5)
 as=c(100,levs*100)
 qEs=seq(0,0.3,length.out=30)
 combos=expand.grid(qEs,as);colnames(combos)=c("qEs","as")
-store=data.frame(A1=0,A2=0,J1=0,J2=0);store=cbind(combos,store)
-store2=data.frame(A1=0,A2=0,J1=0,J2=0);store2=cbind(combos,store2)
+store=data.frame(AP=0,AC=0,JP=0,JC=0);store=cbind(combos,store)
+store2=data.frame(AP=0,AC=0,JP=0,JC=0);store2=cbind(combos,store2)
 
 y01=c(500,5000,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
   if(store$as[i]==as[1]){
-    sim=ode(y=y01,times=times,func=simBiggsQ2,parms=p)
+    sim=ode(y=y01,times=times,func=simBiggsQ2w,parms=p)
   }else{if(store$as[i]==as[2]){
     sim=ode(y=y01,times=times,func=var5,parms=p)
   }else{if(store$as[i]==as[3]){
@@ -535,24 +639,30 @@ for(i in 1:nrow(store)){
   }
   }}}}}
   
-  store$A1[i]=sim[nrow(sim)-1,2]
-  store$A2[i]=sim[nrow(sim)-1,3]
-  store$J1[i]=sim[nrow(sim)-1,4]
-  store$J2[i]=sim[nrow(sim)-1,5]
+  store$AP[i]=sim[nrow(sim)-1,2]
+  store$AC[i]=sim[nrow(sim)-1,3]
+  store$JP[i]=sim[nrow(sim)-1,4]
+  store$JC[i]=sim[nrow(sim)-1,5]
 }
 y02=c(5000,500,0,0)
 for(i in 1:nrow(store2)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
   if(store2$as[i]==as[1]){
-    sim=ode(y=y02,times=times,func=simBiggsQ2,parms=p)
+    sim=ode(y=y02,times=times,func=simBiggsQ2w,parms=p)
   }else{if(store2$as[i]==as[2]){
     sim=ode(y=y02,times=times,func=var5,parms=p)
   }else{if(store2$as[i]==as[3]){
@@ -565,10 +675,10 @@ for(i in 1:nrow(store2)){
     sim=ode(y=y02,times=times,func=var1,parms=p)
   }
   }}}}}
-  store2$A1[i]=sim[nrow(sim)-1,2]
-  store2$A2[i]=sim[nrow(sim)-1,3]
-  store2$J1[i]=sim[nrow(sim)-1,4]
-  store2$J2[i]=sim[nrow(sim)-1,5]
+  store2$AP[i]=sim[nrow(sim)-1,2]
+  store2$AC[i]=sim[nrow(sim)-1,3]
+  store2$JP[i]=sim[nrow(sim)-1,4]
+  store2$JC[i]=sim[nrow(sim)-1,5]
 }
 
 
@@ -578,92 +688,92 @@ t16=tpS(x=store2,y0=y02,parmName="as")
 
 #### B-H PARM B SENSITIVITY ####
 #original a=100; b=50
-simBiggsQ2<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+simBiggsQ2w<-function(t,y,params){
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*A1/(50+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*AP/(50+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 #var1 a=100; b=0.5
 var1b<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*A1/(50*levs[1]+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*AP/(50*levs[1]+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 # var2 a=100; b=25.375
 var2b<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*A1/(50*levs[2]+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*AP/(50*levs[2]+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 # var 3 a=100; b=50.25
 var3b<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*A1/(50*levs[3]+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*AP/(50*levs[3]+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 # var 4 a=100; b=75.125
 var4b<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*A1/(50*levs[4]+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*AP/(50*levs[4]+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
 # var 5 a=100; b=100
 var5b<-function(t,y,params){
-  A1<-y[1]
-  A2<-y[2]
-  J1<-y[3]
-  J2<-y[4]
+  AP<-y[1]
+  AC<-y[2]
+  JP<-y[3]
+  JC<-y[4]
   with(as.list(params),{
-    dA1dt=-qE1Fun(t)*A1-m1*A1+s1*J1
-    dA2dt=-qE2Fun(t)*A2-m2*A2+s2*J2
-    dJ1dt=-cJ1J2*J2*J1-((cJ1A2*v1*A2*J1)/(h1Fun(t)+v1+cJ1A2*A2))-((cJ1A1*v1*A1*J1)/(h1Fun(t)+v1+cJ1A1*A1))-s1*J1+(100*A1/(50*levs[5]+A1))+st1Fun(t)
-    dJ2dt=-cJ2J1*J1*J2-((cJ2A1*v2*A1*J2)/(h2Fun(t)+v2+cJ2A1*A1))-((cJ2A2*v2*A2*J2)/(h2Fun(t)+v2+cJ2A2*A2))-s2*J2+(100*A2/(50+A2))+st2Fun(t)
-    return(list(c(dA1dt,dA2dt,dJ1dt,dJ2dt)))
+    dAPdt=-qEPFun(t)*AP-mP*AP+sP*JP
+    dACdt=-qECFun(t)*AC-mC*AC+sC*JC
+    dJPdt=-cJPJC*JC*JP-((cJPAC*vP*AC*JP)/(v.PFun(t)+vP+cJPAC*AC))-((cJPAP*vP*AP*JP)/(v.PFun(t)+vP+cJPAP*AP))-sP*JP+((100*AP/(50*levs[5]+AP))*wPFun(t))+kPFun(t)
+    dJCdt=-cJCJP*JP*JC-((cJCAP*vC*AP*JC)/(v.CFun(t)+vC+cJCAP*AP))-((cJCAC*vC*AC*JC)/(v.CFun(t)+vC+cJCAC*AC))-sC*JC+((100*AC/(50+AC))*wCFun(t))+kCFun(t)
+    return(list(c(dAPdt,dACdt,dJPdt,dJCdt)))
   })
 }
 
@@ -671,22 +781,28 @@ times=1:100
 bs=c(50,50*levs)
 qEs=seq(0,0.3,length.out=30)
 combos=expand.grid(qEs,bs);colnames(combos)=c("qEs","bs")
-store=data.frame(A1=0,A2=0,J1=0,J2=0);store=cbind(combos,store)
-store2=data.frame(A1=0,A2=0,J1=0,J2=0);store2=cbind(combos,store2)
+store=data.frame(AP=0,AC=0,JP=0,JC=0);store=cbind(combos,store)
+store2=data.frame(AP=0,AC=0,JP=0,JC=0);store2=cbind(combos,store2)
 
 y01=c(500,5000,0,0)
 for(i in 1:nrow(store)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
   if(store$bs[i]==bs[1]){
-    sim=ode(y=y01,times=times,func=simBiggsQ2,parms=p)
+    sim=ode(y=y01,times=times,func=simBiggsQ2w,parms=p)
   }else{if(store$bs[i]==bs[2]){
     sim=ode(y=y01,times=times,func=var5b,parms=p)
   }else{if(store$bs[i]==bs[3]){
@@ -700,24 +816,30 @@ for(i in 1:nrow(store)){
   }
   }}}}}
   
-  store$A1[i]=sim[nrow(sim)-1,2]
-  store$A2[i]=sim[nrow(sim)-1,3]
-  store$J1[i]=sim[nrow(sim)-1,4]
-  store$J2[i]=sim[nrow(sim)-1,5]
+  store$AP[i]=sim[nrow(sim)-1,2]
+  store$AC[i]=sim[nrow(sim)-1,3]
+  store$JP[i]=sim[nrow(sim)-1,4]
+  store$JC[i]=sim[nrow(sim)-1,5]
 }
 y02=c(5000,500,0,0)
 for(i in 1:nrow(store2)){
-  qE1Fun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))))
-  qE2Fun=approxfun(x=tstep,y=rep(0.1,length(tstep)))
-  h1Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  h2Fun=approxfun(x=tstep,y=rep(8,length(tstep)))
-  st1Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
-  st2Fun=approxfun(x=tstep,y=rep(0,length(tstep)))
+  qEPFun=approxfun(x=tstep,y=c(rep(store2$qEs[i],length(tstep))),rule = 2)
+  qECFun=approxfun(x=tstep,y=rep(0.1,length(tstep)),rule = 2)
+  v.PFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  v.CFun=approxfun(x=tstep,y=rep(8,length(tstep)),rule = 2)
+  kPFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  kCFun=approxfun(x=tstep,y=rep(0,length(tstep)),rule = 2)
+  #random % added or subtracted from the deterministic recruitment equation.
+  set.seed(1)
+  wP=rtriang(tstep, 0.5, 1.5, 1) # probability distribution between 50% reduction/addition, or no change
+  wC=rtriang(tstep, 0.5, 1.5, 1)
+  wPFun=approxfun(x=tstep,y=wP,rule = 2)
+  wCFun=approxfun(x=tstep,y=wC,rule = 2)
   
-  p=c(c(s1=0.1,m1=0.1,cJ1A1=0.001,cJ1A2=0.05,cJ1J2=0.003,v1=1),
-      c(s2=0.1,m2=0.1,cJ2A2=0.001,cJ2A1=0.03,cJ2J1=0.003,v2=1))
+  p=c(c(sP=0.1,mP=0.1,cJPAP=0.001,cJPAC=0.05,cJPJC=0.003,vP=1),
+      c(sC=0.1,mC=0.1,cJCAC=0.001,cJCAP=0.03,cJCJP=0.003,vC=1))
   if(store2$bs[i]==bs[1]){
-    sim=ode(y=y02,times=times,func=simBiggsQ2,parms=p)
+    sim=ode(y=y02,times=times,func=simBiggsQ2w,parms=p)
   }else{if(store2$bs[i]==bs[2]){
     sim=ode(y=y02,times=times,func=var5b,parms=p)
   }else{if(store2$bs[i]==bs[3]){
@@ -730,10 +852,10 @@ for(i in 1:nrow(store2)){
     sim=ode(y=y02,times=times,func=var1b,parms=p)
   }
   }}}}}
-  store2$A1[i]=sim[nrow(sim)-1,2]
-  store2$A2[i]=sim[nrow(sim)-1,3]
-  store2$J1[i]=sim[nrow(sim)-1,4]
-  store2$J2[i]=sim[nrow(sim)-1,5]
+  store2$AP[i]=sim[nrow(sim)-1,2]
+  store2$AC[i]=sim[nrow(sim)-1,3]
+  store2$JP[i]=sim[nrow(sim)-1,4]
+  store2$JC[i]=sim[nrow(sim)-1,5]
 }
 
 
@@ -779,16 +901,21 @@ lms=ggplot(data = dumDat)+theme_classic()+
   geom_abline(data = fits, aes(slope=slope,intercept=intercept,color=parName))
 lms
 
-sen$dom=gsub("A1","Preferred Species",sen$dom); sen$dom=gsub("A2","Competitor Species",sen$dom)
+sen$dom=gsub("AP","Preferred Species",sen$dom); sen$dom=gsub("AC","Competitor Species",sen$dom)
 cur=unique(sen$parName)
 repl=c("sP","mP","cjCaP","cjPaP","cjCjP","cjPjC","cjPaC","a","b")
 for(i in 1:9){
   sen$parName=gsub(cur[i],repl[i],sen$parName)
 }
 
-grd=ggplot(sen,aes(x=parVal*100,y=qETP))+theme_classic()+
+# rows of sen with Inf or -Inf for minQTP and maxQTP columns indicate situations where the system never flipped from competitor species to preferred species. On the plot below this results in the spike in harvest rate that goes to the top of the plot for parameters a, cJCJP, mP, and sP in the top row.
+
+# this is noted in the supplemental information
+
+si.fig1=ggplot(sen,aes(x=parVal*100,y=qETP))+theme_classic()+
   geom_point()+facet_grid(dom~parName)+
   geom_line(color="blue")+
   xlab("% of original Parmeter Value")+
   ylab("Harvest Rate")
-grd
+si.fig1
+ggsave('supplementFig1_revision.png', plot = si.fig1, dpi='print', width = 11, height = 5, units = 'in')
